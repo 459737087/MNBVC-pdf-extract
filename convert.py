@@ -3,8 +3,8 @@ import io
 import fitz
 import shutil
 import hashlib
-import magic
-
+import pprint
+import base64
 import pandas as pd
 from PIL import Image
 import pyarrow as pa
@@ -26,31 +26,89 @@ data = {
 }
 
 
+def convert_wps_pdf(pdf, text_dict):
+    for page_number in range(len(pdf)):
+        # 获取页面
+        page = pdf[page_number]
+        text = page.get_text()
+        text_dict[page_number] = text
+        zoom_x = 1.0  # 水平缩放比例
+        zoom_y = 1.0  # 垂直缩放比例
+        mat = fitz.Matrix(zoom_x, zoom_y)  # 创建缩放矩阵
+        pix = page.get_pixmap(matrix=mat)  # 使用矩阵渲染页面为像素图
+        image_filename = f"{temporary_path}/{page_number+1}.png"
+        pix.save(image_filename)
+    return text_dict
+
+
+def convert_pic_pdf(file_path):
+    from PyPDF2 import PdfReader, PdfWriter
+    pdf_reader = PdfReader(file_path)
+    num_pages = len(pdf_reader.pages)
+    # 遍历每一页
+    for page_num in range(num_pages):
+        # 获取当前页对象
+        page_obj = pdf_reader.pages[page_num]
+        # 获取当前页中的所有对象
+        page_objs = page_obj['/Resources']['/XObject'].get_object()
+        # print(page_objs)
+        # 遍历每个对象
+        for obj_name in page_objs:
+            # 判断对象是否为图片
+            if page_objs[obj_name]['/Subtype'] == '/Image':
+                # 获取图片对象
+                img_obj = page_objs[obj_name]
+                # 获取图片数据
+                img_data = img_obj.get_data()
+                # 将图片数据保存为文件
+                with open(f"{temporary_path}/{page_num+1}.png",
+                          'wb') as img_file:
+                    img_file.write(img_data)
+
+
 def parse_pdf_file(file_path):
     if os.path.exists(temporary_path):
         shutil.rmtree(temporary_path)
     os.makedirs(temporary_path)
+
     try:
         text_dict = {}
         pdf = fitz.open(file_path)
-        print("file path is ---> ", file_path)
-        # 遍历每一页
-        for page_number in range(len(pdf)):
-            # 获取页面
-            page = pdf[page_number]
-            text = page.get_text()
-            text_dict[page_number] = text
-
-            zoom_x = 1.0  # 水平缩放比例
-            zoom_y = 1.0  # 垂直缩放比例
-            mat = fitz.Matrix(zoom_x, zoom_y)  # 创建缩放矩阵
-            pix = page.get_pixmap(matrix=mat)  # 使用矩阵渲染页面为像素图
-            image_filename = f"{temporary_path}/{page_number+1}.png"
-            pix.save(image_filename)
+        assert isinstance(pdf, fitz.Document)
+        print(f">> PDF info: PageCount {pdf.page_count}, metadata:")
+        pprint.pprint(pdf.metadata)
+        #         做了一个判断，属于wps的能进行处理，别的方式处理不了
+        pdf_type = pdf.metadata.get('creator')
+        if 'WPS' in pdf_type:
+            text_dict = convert_wps_pdf(pdf, text_dict)
+        else:
+            print("这些文件都处理不了 -> ", file_path)
+            # convert_pic_pdf(file_path)
         pdf.close()
         return text_dict
     except Exception as e:
+        print(e)
         return None
+
+
+def parse_pic_file(file_path):
+    text_dict = {}
+    pdf = fitz.open(file_path)
+    print("file path is ---> ", file_path)
+    # 遍历每一页
+    for page_number in range(len(pdf)):
+        # 获取页面
+        page = pdf[page_number]
+        text = page.get_text()
+        text_dict[page_number] = text
+        zoom_x = 1.0  # 水平缩放比例
+        zoom_y = 1.0  # 垂直缩放比例
+        mat = fitz.Matrix(zoom_x, zoom_y)  # 创建缩放矩阵
+        pix = page.get_pixmap(matrix=mat)  # 使用矩阵渲染页面为像素图
+        image_filename = f"{temporary_path}/{page_number+1}.png"
+        pix.save(image_filename)
+    pdf.close()
+    return text_dict
 
 
 def calculate_md5(text):
@@ -61,13 +119,13 @@ def calculate_md5(text):
 
 def read_image(image_path):
     # 打开图像文件
-    with open(image_path, 'rb') as file:
-        image = Image.open(file)
-        # 将图像转换为二进制格式
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format=image.format)
-        img_byte_arr = img_byte_arr.getvalue()
-    return img_byte_arr
+    with open(image_path, 'rb') as image_file:
+        # 读取文件内容
+        encoded_string = base64.b64encode(image_file.read())
+
+        # 将 base64 编码的二进制数据转换为 ASCII 字符串
+        # encoded_string = encoded_string.decode('ascii')
+        return encoded_string
 
 
 def file_writing(pdf_content_dict, dir):
@@ -76,7 +134,6 @@ def file_writing(pdf_content_dict, dir):
     pd_file = pd.DataFrame([data])
     table = pa.Table.from_pandas(pd_file)
     writer = pq.ParquetWriter(output_name, table.schema)
-
     for image_num in range(len(image_files)):
         iamge_dir = temporary_path + '/' + image_files[image_num]
         text_content = pdf_content_dict[image_num]
@@ -113,6 +170,7 @@ def visit_directory(src, dst):
 
             print(dst_dir, '', src_file)
             #dst_file = os.path.join(dst_dir, file)
+
             if src_file.endswith('.pdf'):
                 pdf_content_dict = parse_pdf_file(src_file)
                 if pdf_content_dict is None:
@@ -128,7 +186,7 @@ def visit_directory(src, dst):
                 os.makedirs(dst_dir)
 
 
-# text_dict = parse_pdf_file("29-古镜奇谈2月染长安/pdf/阿狸.pdf")
-# file_writing(text_dict, "29-古镜奇谈2月染长安/pdf/阿狸.pdf")
+# text_dict = parse_pdf_file("29-古镜奇谈2月染长安/阿狸.pdf")
+# file_writing(text_dict, "29-古镜奇谈2月染长安/阿狸.pdf")
 
 visit_directory('29-古镜奇谈2月染长安/', 'result/')
