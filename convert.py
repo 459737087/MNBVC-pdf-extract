@@ -5,6 +5,8 @@ import shutil
 import hashlib
 import pprint
 import base64
+import argparse
+
 import pandas as pd
 from PIL import Image
 import pyarrow as pa
@@ -188,5 +190,19 @@ def visit_directory(src, dst):
 
 # text_dict = parse_pdf_file("29-古镜奇谈2月染长安/阿狸.pdf")
 # file_writing(text_dict, "29-古镜奇谈2月染长安/阿狸.pdf")
+def main():
+    parser = argparse.ArgumentParser(
+        description='Convert a base64 string to an image file.')
 
-visit_directory('29-古镜奇谈2月染长安/', 'result/')
+    # 添加参数，base64_string是一个必须的参数，--output是一个可选的参数
+    parser.add_argument('--source', help='输入路径')
+    parser.add_argument('--output', help='输出路径')
+    args = parser.parse_args()
+    source_directory = args.source
+    target_directory = args.output
+    print(source_directory, target_directory)
+    visit_directory(source_directory, target_directory)
+
+
+if __name__ == '__main__':
+    main()
