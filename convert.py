@@ -152,11 +152,32 @@ def file_writing(pdf_content_dict, dir):
         writer.write_table(info_table)
     writer.close()
 
+def convert_img_parquet(dst, img_list):
+
+    pd_file = pd.DataFrame([data])
+    table = pa.Table.from_pandas(pd_file)
+    writer = pq.ParquetWriter(dst+"img.parquet", table.schema)
+    for iamge_dir in img_list:
+        binary_data = read_image(iamge_dir)
+        data['文件md5'] = ""
+        data['页码'] = 0
+        data['文本'] = ""
+        data['图片'] = binary_data
+        data['数据类型'] = "图片"
+        pd_file = pd.DataFrame([data])
+        info_table = pa.Table.from_pandas(pd_file)
+        writer.write_table(info_table)
+    writer.close()
+
+def is_image_file(filename):
+    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
+    return any(filename.lower().endswith(ext) for ext in image_extensions)
 
 def visit_directory(src, dst):
     """
     复制并处理src目录到dst目录，包括src下的所有子目录和文件。
     """
+    img_list = []
     # 遍历源目录
     for root, dirs, files in os.walk(src):
         # 计算目标目录路径
@@ -179,6 +200,10 @@ def visit_directory(src, dst):
                     continue
                 dst_file = src_file.replace(src, dst, 1)
                 file_writing(pdf_content_dict, dst_file)
+            if is_image_file(src_file):
+                print(f"{src_file} is an image file.")
+                dst_file = src_file.replace(src, dst, 1)
+                img_list.append(src_file)
 
         # 如果需要复制空目录（可选）
         for dir in dirs:
@@ -186,6 +211,8 @@ def visit_directory(src, dst):
             dst_dir = os.path.join(root.replace(src, dst, 1), dir)
             if not os.path.exists(dst_dir):
                 os.makedirs(dst_dir)
+
+    convert_img_parquet(dst, img_list)
 
 
 # text_dict = parse_pdf_file("29-古镜奇谈2月染长安/阿狸.pdf")
