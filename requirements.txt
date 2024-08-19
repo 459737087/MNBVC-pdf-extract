@@ -1,3 +1,5 @@
 PyMuPDF
 pyarrow
 PyPDF2
+python-docx
+pydub
