@@ -89,7 +89,7 @@ def save_to_parquet(df, output_file):
     pq.write_table(table, output_file)
 
 
-def process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model_path,
+def process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model,
                                            output_prefix):
     """处理目录下的所有音频文件并根据大小分批保存为Parquet文件"""
     file_paths = [
@@ -97,7 +97,7 @@ def process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model
         if f.endswith(('.mp3', '.wav'))
     ]
 
-    whisper_pipeline = FlaxWhisperPipline(whisper_model_path)
+    whisper_pipeline = FlaxWhisperPipline(whisper_model)
 
     current_size = 0
     batch_files = []
@@ -128,9 +128,9 @@ def process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model
 
 
 directory = '/input1/2、新手剧本/1 古木吟（6人开放）/音频/'
-whisper_model_path= 'huggingface/whisper-large-v3/'
+whisper_model= 'openai/whisper-large-v3'
 max_size_mb = 500  # 每个Parquet文件的最大大小，单位为MB
 output_prefix = 'output/audio'
 
 
-process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model_path, output_prefix)
+process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model, output_prefix)
