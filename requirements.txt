@@ -3,4 +3,6 @@ pyarrow
 PyPDF2
 python-docx
 pydub
+silero-vad
+librosa
 git+https://github.com/luigide2020/whisper-jax.git

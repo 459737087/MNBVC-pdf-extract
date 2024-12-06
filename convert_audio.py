@@ -1,6 +1,7 @@
 import os
 from pydub import AudioSegment
 from whisper_jax import FlaxWhisperPipline
+from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -16,6 +17,24 @@ def audio_to_array(file_path):
     audio = AudioSegment.from_file(file_path)
     data = np.array(audio.get_array_of_samples())
     return data, audio.frame_rate
+
+
+def is_speech_in_audio(file_path):
+    """
+    检测音频是否包含人类语音
+    参数:
+    file_path (str): 音频文件的路径
+    返回:
+    bool: 如果音频包含语音，返回 True；否则返回 False
+    """
+    model = load_silero_vad()
+    wav = read_audio(file_path)
+    speech_timestamps = get_speech_timestamps(
+        wav,
+        model,
+        return_seconds=True,  # Return speech timestamps in seconds (default is samples)
+    )
+    return len(speech_timestamps) > 0
 
 
 def audio_to_text(file_path, whisper_pipeline):
@@ -48,7 +67,11 @@ def create_dataframe(file_paths, whisper_pipeline):
         file_id = str(uuid.uuid4())
         processing_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
         data_type = '音频'
-        text, chunk_list = audio_to_text(file_path, whisper_pipeline)
+        if (is_speech_in_audio(file_path)):
+            text, chunk_list = audio_to_text(file_path, whisper_pipeline)
+        else:
+            print(f"NO person speech detected from audio: {file_path}")
+            text, chunk_list = '', None
         extra_info = {
             'duration': AudioSegment.from_file(file_path).duration_seconds,
             'chunks': chunk_list
