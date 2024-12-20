@@ -1,6 +1,7 @@
 import os
 from pydub import AudioSegment
-from whisper_jax import FlaxWhisperPipline
+from funasr import AutoModel
+from funasr.utils.postprocess_utils import rich_transcription_postprocess
 from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
 import numpy as np
 import pandas as pd
@@ -18,6 +19,15 @@ def audio_to_array(file_path):
     data = np.array(audio.get_array_of_samples())
     return data, audio.frame_rate
 
+def load_model():
+    model = AutoModel(
+        model="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+        punc_model="ct-punc",
+        vad_model="fsmn-vad",
+        vad_kwargs={"max_single_segment_time": 30000},
+        device="cuda:0"
+    )
+    return model
 
 def is_speech_in_audio(file_path):
     """
@@ -37,16 +47,25 @@ def is_speech_in_audio(file_path):
     return len(speech_timestamps) > 0
 
 
-def audio_to_text(file_path, whisper_pipeline):
+def audio_to_text(file_path):
     """将音频文件解析为文本"""
+    model = load_model()
     time1 = time.time()
-    ret_dict = whisper_pipeline(file_path, task="transcribe", return_timestamps=True)
+    ret_dict = model.generate(
+        input=file_path,
+        cache={},
+        language="auto",
+        use_itn=True,
+        batch_size_s=60,
+        merge_vad=True,  #
+        merge_length_s=15,
+    )[0]
     time2 = time.time()
     print(f'-- cost : {time2 - time1:.2f} seconds')  
-    text = ret_dict['text']
-    chunk_list = ret_dict['chunks']
+    text = rich_transcription_postprocess(ret_dict['text'])
+    timestamp = ret_dict['timestamp']
 
-    return text, chunk_list
+    return text, timestamp
 
 
 def get_file_md5(file_path):
@@ -58,7 +77,7 @@ def get_file_md5(file_path):
     return hasher.hexdigest()
 
 
-def create_dataframe(file_paths, whisper_pipeline):
+def create_dataframe(file_paths):
     """创建包含音频数据和元数据的DataFrame"""
     data_list = []
     for file_path in tqdm(file_paths, desc='Processing audio files'):
@@ -68,13 +87,13 @@ def create_dataframe(file_paths, whisper_pipeline):
         processing_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
         data_type = '音频'
         if (is_speech_in_audio(file_path)):
-            text, chunk_list = audio_to_text(file_path, whisper_pipeline)
+            text, timestamp = audio_to_text(file_path)
         else:
             print(f"NO person speech detected from audio: {file_path}")
-            text, chunk_list = '', None
+            text, timestamp = '', None
         extra_info = {
             'duration': AudioSegment.from_file(file_path).duration_seconds,
-            'chunks': chunk_list
+            'timestamp': timestamp
         }
         data, frame_rate = audio_to_array(file_path)
         data_list.append({
@@ -112,15 +131,12 @@ def save_to_parquet(df, output_file):
     pq.write_table(table, output_file)
 
 
-def process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model,
-                                           output_prefix):
+def process_audio_files_in_batches_by_size(directory, max_size_mb, output_prefix):
     """处理目录下的所有音频文件并根据大小分批保存为Parquet文件"""
     file_paths = [
         os.path.join(directory, f) for f in os.listdir(directory)
         if f.endswith(('.mp3', '.wav'))
     ]
-
-    whisper_pipeline = FlaxWhisperPipline(whisper_model)
 
     current_size = 0
     batch_files = []
@@ -131,7 +147,7 @@ def process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model
         file_size = os.path.getsize(file_path)
 
         if current_size + file_size > max_size_bytes:
-            df = create_dataframe(batch_files, whisper_pipeline)
+            df = create_dataframe(batch_files)
             output_file = f"{output_prefix}_part_{batch_index}.parquet"
             save_to_parquet(df, output_file)
             print(f"Saved batch {batch_index} to {output_file}")
@@ -144,16 +160,14 @@ def process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model
         current_size += file_size
 
     if batch_files:
-        df = create_dataframe(batch_files, whisper_pipeline)
+        df = create_dataframe(batch_files)
         output_file = f"{output_prefix}_part_{batch_index}.parquet"
         save_to_parquet(df, output_file)
         print(f"Saved batch {batch_index} to {output_file}")
 
 
-directory = '/input1/2、新手剧本/1 古木吟（6人开放）/音频/'
-whisper_model= 'openai/whisper-large-v3'
+directory = './'
 max_size_mb = 500  # 每个Parquet文件的最大大小，单位为MB
 output_prefix = 'output/audio'
 
-
-process_audio_files_in_batches_by_size(directory, max_size_mb, whisper_model, output_prefix)
+process_audio_files_in_batches_by_size(directory, max_size_mb, output_prefix)
