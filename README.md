@@ -43,3 +43,6 @@ parquet格式
 file_id是为了做区分，保存的音频数据在metadata中，stt_wt中的text字段是语音转文字的内容，timestamp是二维时间戳列表，一个字对应一个时间戳的起始时间到截止时间。
 audio里面是语音数据转换成byte
 stt_text是语音转文字的内容
+
+
+read_parquet.py文件是为了读取parquet里面的内容做的测试
